@@ -1,0 +1,9 @@
+/* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Optional: Add custom base styles or component layers here */
+body {
+  @apply font-sans antialiased text-gray-800 bg-gray-50;
+}
