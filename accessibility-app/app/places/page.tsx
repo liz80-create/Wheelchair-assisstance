@@ -13,41 +13,52 @@ import { MapPin, Search, Star, Filter, Building, ExternalLink, AlertCircle } fro
 import apiClient from "@/lib/apiClient" // Import API client
 import type { Place, AccessibilityFeature } from "@/types/api" // Import API types
 
+// Define the interface for DRF Paginated Response
+interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
 export default function PlacesPage() {
   const [places, setPlaces] = useState<Place[]>([])
-  const [features, setFeatures] = useState<AccessibilityFeature[]>([])
+  const [features, setFeatures] = useState<AccessibilityFeature[]>([]) // State holds the array
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null) // Add error state
+  const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedFeatures, setSelectedFeatures] = useState<number[]>([])
   const [selectedTypes, setSelectedTypes] = useState<string[]>([])
-  const [showFilters, setShowFilters] = useState(false) // Keep UI state
+  const [showFilters, setShowFilters] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
-      setError(null) // Reset error
+      setError(null)
       try {
-        // Fetch places and features concurrently from API
-        const [placesData, featuresData] = await Promise.all([
-          apiClient.get<Place[]>('/places/'), // Endpoint from urls.py
-          apiClient.get<AccessibilityFeature[]>('/features/') // Endpoint from urls.py
+        // Fetch places and features concurrently
+        // *** Change 1: Expect PaginatedResponse for BOTH endpoints ***
+        const [placesResponse, featuresResponse] = await Promise.all([
+          apiClient.get<PaginatedResponse<Place>>('/places/'),
+          apiClient.get<PaginatedResponse<AccessibilityFeature>>('/features/') // Expect paginated response
         ])
-        setPlaces(placesData)
-        setFeatures(featuresData)
+        // *** Change 2: Extract .results from BOTH responses ***
+        setPlaces(placesResponse.results)
+        setFeatures(featuresResponse.results) // Set state with the array inside results
       } catch (err: any) {
         console.error("Error fetching data:", err)
         setError(err.message || "Failed to load places and features. Please try again later.")
+        setPlaces([])
+        setFeatures([])
       } finally {
         setLoading(false)
       }
     }
 
     fetchData()
-  }, []) // Fetch only on component mount
+  }, [])
 
-  // Client-side filtering (Keep existing logic as requested)
-  // NOTE: For better performance, filtering/searching should ideally be done on the backend via query parameters.
+  // Client-side filtering (NO CHANGES HERE)
   const filteredPlaces = places.filter((place) => {
     const placeFeatureIds = new Set(place.accessibility_features.map(f => f.id));
 
@@ -66,14 +77,13 @@ export default function PlacesPage() {
     return matchesSearch && matchesType && matchesFeatures
   })
 
-  // Get unique place types from the fetched data
+  // Get unique place types (NO CHANGES HERE)
   const placeTypes = Array.from(new Set(places.map((place) => place.place_type))).sort()
 
-  // --- RENDER LOADING ---
+  // --- RENDER LOADING --- (NO CHANGES HERE)
   if (loading) {
     return (
       <div className="container py-8">
-        {/* Keep existing Skeleton structure */}
          <h1 className="text-3xl font-bold mb-6">Find Accessible Places</h1>
         <div className="flex flex-col md:flex-row gap-6">
           <div className="w-full md:w-1/4">
@@ -84,7 +94,7 @@ export default function PlacesPage() {
             <Skeleton className="h-10 w-full mb-6" />
             <div className="grid gap-6 md:grid-cols-2">
               {[1, 2, 3, 4].map((i) => (
-                <Skeleton key={i} className="h-64 w-full" /> // Adjusted height
+                <Skeleton key={i} className="h-64 w-full" />
               ))}
             </div>
           </div>
@@ -93,29 +103,29 @@ export default function PlacesPage() {
     )
   }
 
-  // --- RENDER ERROR ---
+  // --- RENDER ERROR --- (NO CHANGES HERE)
    if (error) {
      return (
        <div className="container py-8 text-center">
          <AlertCircle className="mx-auto h-12 w-12 text-red-500 mb-4" />
          <h1 className="text-2xl font-bold mb-4 text-red-600">Error Loading Places</h1>
          <p className="text-gray-600 dark:text-gray-400 mb-6">{error}</p>
-         <Button onClick={() => window.location.reload()}> {/* Simple retry */}
+         <Button onClick={() => window.location.reload()}>
            Try Again
          </Button>
        </div>
      );
    }
 
-  // --- RENDER CONTENT ---
+  // --- RENDER CONTENT --- (NO CHANGES BELOW THIS LINE, including line 348)
   return (
     <div className="container py-8">
       <h1 className="text-3xl font-bold mb-6">Find Accessible Places</h1>
 
       <div className="flex flex-col md:flex-row gap-6">
-        {/* Filters Sidebar - Kept as is, uses 'features' and 'placeTypes' from state */}
+        {/* Filters Sidebar */}
         <div className="w-full md:w-1/4">
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border shadow-sm sticky top-24"> {/* Added sticky */}
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border shadow-sm sticky top-24">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">Filters</h2>
               <Button variant="ghost" size="sm" className="md:hidden" onClick={() => setShowFilters(!showFilters)}>
@@ -139,7 +149,7 @@ export default function PlacesPage() {
                         }}
                       />
                       <Label htmlFor={`type-${type}`} className="capitalize">
-                        {type.replace('_', ' ')} {/* Improve display */}
+                        {type.replace('_', ' ')}
                       </Label>
                     </div>
                   ))}
@@ -149,8 +159,8 @@ export default function PlacesPage() {
               {/* Accessibility Features Filter */}
               <div>
                 <h3 className="font-medium mb-2">Accessibility Features</h3>
-                 {/* Use fetched features */}
                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                  {/* This line should now work correctly because 'features' is an array */}
                   {features.sort((a,b) => a.name.localeCompare(b.name)).map((feature) => (
                     <div key={feature.id} className="flex items-center space-x-2">
                       <Checkbox
@@ -169,7 +179,7 @@ export default function PlacesPage() {
               </div>
 
               {/* Reset Filters */}
-              {(selectedTypes.length > 0 || selectedFeatures.length > 0) && ( // Show only if filters applied
+              {(selectedTypes.length > 0 || selectedFeatures.length > 0) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -188,7 +198,7 @@ export default function PlacesPage() {
 
         {/* Places List */}
         <div className="w-full md:w-3/4">
-          {/* Search Bar - Kept as is */}
+          {/* Search Bar */}
           <div className="relative mb-6">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
             <Input
@@ -200,7 +210,7 @@ export default function PlacesPage() {
             />
           </div>
 
-          {/* Results - Render based on 'filteredPlaces' */}
+          {/* Results */}
           {filteredPlaces.length === 0 ? (
             <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg">
               <Building className="mx-auto h-12 w-12 text-gray-400 mb-4" />
@@ -222,19 +232,17 @@ export default function PlacesPage() {
               )}
             </div>
           ) : (
-            <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2"> {/* Adjusted grid for better spacing */}
-               {/* Use PlaceAPI type */}
+            <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
               {filteredPlaces.map((place) => (
                 <Link key={place.id} href={`/places/${place.id}`} className="block h-full">
-                  <Card className="h-full hover:shadow-md transition-shadow flex flex-col"> {/* Ensure card takes full height */}
+                  <Card className="h-full hover:shadow-md transition-shadow flex flex-col">
                     <CardContent className="p-0 flex-grow flex flex-col">
-                       {/* Image placeholder - Kept */}
                       <div className="h-40 bg-gray-100 dark:bg-gray-800 relative flex-shrink-0">
                         <img
                           src={`/placeholder.svg?height=160&width=400&text=${encodeURIComponent(place.name)}`}
                           alt={place.name}
                           className="h-full w-full object-cover"
-                          loading="lazy" // Add lazy loading
+                          loading="lazy"
                         />
                         <Badge className="absolute top-2 right-2 capitalize bg-green-600">{place.place_type.replace('_', ' ')}</Badge>
                       </div>
@@ -242,19 +250,17 @@ export default function PlacesPage() {
                         <div>
                             <div className="flex justify-between items-start mb-2">
                             <h3 className="font-semibold text-lg">{place.name}</h3>
-                             {/* Use fetched review_count */}
                             <div className="flex items-center flex-shrink-0 ml-2">
                                 <Star className="h-4 w-4 text-yellow-500 mr-1" />
-                                <span className="text-sm">{place.review_count}</span>
+                                <span className="text-sm">{typeof place.review_count === 'number' ? place.review_count : 0}</span>
                             </div>
                             </div>
                             <div className="flex items-center text-sm text-gray-500 dark:text-gray-400 mb-3">
                             <MapPin className="h-4 w-4 mr-1 flex-shrink-0" />
                             <span className="truncate">{place.address}</span>
                             </div>
-                            {/* Use fetched accessibility_features */}
                             <div className="flex flex-wrap gap-1 mb-3">
-                            {place.accessibility_features.slice(0, 2).map((feature) => (
+                            {(place.accessibility_features ?? []).slice(0, 2).map((feature) => (
                                 <Badge
                                 key={feature.id}
                                 variant="outline"
@@ -263,18 +269,17 @@ export default function PlacesPage() {
                                 {feature.name}
                                 </Badge>
                             ))}
-                            {place.accessibility_features.length > 2 && (
+                            {(place.accessibility_features?.length ?? 0) > 2 && (
                                 <Badge variant="outline" className="bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
-                                +{place.accessibility_features.length - 2} more
+                                +{(place.accessibility_features?.length ?? 0) - 2} more
                                 </Badge>
                             )}
-                            {place.accessibility_features.length === 0 && (
+                            {(place.accessibility_features?.length ?? 0) === 0 && (
                                 <Badge variant="secondary">No features listed</Badge>
                             )}
                             </div>
-                            {/* Use fetched description, handle null */}
                             <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2 mb-3">
-                              {place.description ?? <span className="italic">No description provided.</span>}
+                              {place.description || <span className="italic">No description provided.</span>}
                             </p>
                         </div>
                         <div className="flex justify-end mt-2">

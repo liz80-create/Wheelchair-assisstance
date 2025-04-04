@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation" // Added useRouter
+import { useParams, useRouter } from "next/navigation"
 import { useAuth } from "@/components/auth-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -11,9 +11,17 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   MapPin, Phone, Globe, Star, Clock, Check, X, ThumbsUp, ThumbsDown, User, Calendar, ChevronLeft, AlertCircle, Info
 } from "lucide-react"
-import ReviewForm from "@/components/review-form" // Assuming this component exists/is created
+import ReviewForm from "@/components/review-form"
 import apiClient from "@/lib/apiClient"
-import type { Place, Review, AccessibilityFeature } from "@/types/api" // Use API types
+import type { Place, Review, AccessibilityFeature } from "@/types/api" // Ensure these types match your API structure
+
+// Define the interface for DRF Paginated Response
+interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
 
 // Helper function to format verification status
 const formatVerificationStatus = (status: string) => {
@@ -28,12 +36,12 @@ const formatVerificationStatus = (status: string) => {
 
 export default function PlaceDetailPage() {
   const params = useParams();
-  const router = useRouter(); // For redirecting if place not found
-  const { user, isLoading: authLoading } = useAuth(); // Get user context
+  const router = useRouter();
+  const { user, isLoading: authLoading } = useAuth();
   const [place, setPlace] = useState<Place | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null); // Error state
+  const [error, setError] = useState<string | null>(null);
   const [showReviewForm, setShowReviewForm] = useState(false);
 
   const placeId = params?.id ? (Array.isArray(params.id) ? params.id[0] : params.id) : null;
@@ -51,12 +59,14 @@ export default function PlaceDetailPage() {
       setError(null);
       try {
         // Fetch place and its reviews from the API
-        const [placeData, reviewsData] = await Promise.all([
+        // Note the type change for the reviews fetch
+        const [placeData, reviewsResponse] = await Promise.all([
           apiClient.get<Place>(`/places/${placeId}/`),
-          apiClient.get<Review[]>(`/reviews/?place_id=${placeId}`) // Use query param filtering
+          apiClient.get<PaginatedResponse<Review>>(`/reviews/?place_id=${placeId}`) // Expect PaginatedResponse
         ]);
         setPlace(placeData);
-        setReviews(reviewsData);
+        // Extract the 'results' array from the paginated response
+        setReviews(reviewsResponse.results); // <-- Use .results here
       } catch (err: any) {
         console.error("Error fetching place data:", err);
          if (err.response && err.response.status === 404) {
@@ -77,14 +87,20 @@ export default function PlaceDetailPage() {
 
   // Callback for when a new review is successfully submitted
    const handleReviewSubmit = (newReviewFromApi: Review) => {
+     // Assuming the API returns the single created review directly (not paginated)
      setReviews(prevReviews => [newReviewFromApi, ...prevReviews]); // Add to list
      setShowReviewForm(false); // Hide form
      // Update review count locally for immediate feedback
-     setPlace(prevPlace => prevPlace ? ({ ...prevPlace, review_count: (prevPlace.review_count ?? 0) + 1 }) : null);
+     // Ensure place exists and review_count is a number before incrementing
+     setPlace(prevPlace => {
+       if (!prevPlace) return null;
+       const currentCount = typeof prevPlace.review_count === 'number' ? prevPlace.review_count : 0;
+       return { ...prevPlace, review_count: currentCount + 1 };
+     });
    };
 
   // --- RENDER LOADING ---
-  if (loading || authLoading) { // Also consider auth loading state
+  if (loading || authLoading) {
     return (
       <div className="container py-8">
         {/* Keep existing Skeleton structure */}
@@ -142,6 +158,7 @@ export default function PlaceDetailPage() {
 
   // --- RENDER CONTENT ---
   // Use fetched 'place' and 'reviews' data
+  // Ensure place is not null before accessing its properties (already handled by error check above)
   return (
     <div className="container py-8">
       <div className="mb-6">
@@ -158,8 +175,11 @@ export default function PlaceDetailPage() {
           <Badge className="capitalize bg-green-600">{place.place_type.replace('_', ' ')}</Badge>
           <div className="flex items-center text-sm">
             <Star className="h-4 w-4 text-yellow-500 mr-1" />
-             {/* Use fetched review count */}
-            <span>{place.review_count} {place.review_count === 1 ? 'review' : 'reviews'}</span>
+             {/* Use fetched review count, handle potential undefined/null */}
+             <span>
+                {(typeof place.review_count === 'number' ? place.review_count : 0)}{' '}
+                {(typeof place.review_count === 'number' && place.review_count === 1) ? 'review' : 'reviews'}
+             </span>
           </div>
         </div>
       </div>
@@ -169,7 +189,8 @@ export default function PlaceDetailPage() {
           {/* Place Image - Kept placeholder */}
           <div className="h-[300px] bg-gray-100 dark:bg-gray-800 rounded-lg overflow-hidden mb-6">
             <img
-              src={`/placeholder.svg?height=300&width=800&text=${encodeURIComponent(place.name)}`}
+              // Consider using a real image source if available, otherwise placeholder
+              src={`https://via.placeholder.com/800x300.png?text=${encodeURIComponent(place.name)}`}
               alt={place.name}
               className="h-full w-full object-cover"
             />
@@ -179,14 +200,14 @@ export default function PlaceDetailPage() {
           <div className="mb-8">
             <h2 className="text-xl font-semibold mb-3">About {place.name}</h2>
             <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap"> {/* Handle newlines */}
-                {place.description ?? <span className="italic text-gray-500">No description provided.</span>}
+                {place.description || <span className="italic text-gray-500">No description provided.</span>}
             </p>
           </div>
 
           {/* Accessibility Features */}
           <div className="mb-8">
             <h2 className="text-xl font-semibold mb-3">Accessibility Features</h2>
-            {place.accessibility_features.length > 0 ? (
+            {place.accessibility_features && place.accessibility_features.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Use fetched features */}
                 {place.accessibility_features.map((feature) => (
@@ -198,9 +219,9 @@ export default function PlaceDetailPage() {
                         </div>
                         <div>
                             <h3 className="font-medium">{feature.name}</h3>
-                             {/* Handle null description */}
+                             {/* Handle null/empty description */}
                             <p className="text-sm text-gray-500 dark:text-gray-400">
-                                {feature.description ?? <span className="italic">No details available.</span>}
+                                {feature.description || <span className="italic">No details available.</span>}
                             </p>
                         </div>
                         </div>
@@ -221,6 +242,7 @@ export default function PlaceDetailPage() {
           {/* Reviews Section */}
           <div>
             <div className="flex items-center justify-between mb-4">
+              {/* Display the count from the state variable */}
               <h2 className="text-xl font-semibold">Reviews ({reviews.length})</h2>
               {/* Show button only if logged in and form not already shown */}
               {user && !showReviewForm && (
@@ -236,7 +258,7 @@ export default function PlaceDetailPage() {
             </div>
 
             {/* Review Form */}
-            {showReviewForm && user && (
+            {showReviewForm && user && place && ( // Ensure place is not null here
               <div className="mb-6">
                 <Card>
                   <CardContent className="p-6">
@@ -250,7 +272,8 @@ export default function PlaceDetailPage() {
                      {/* Ensure ReviewForm component exists and accepts these props */}
                     <ReviewForm
                       placeId={place.id}
-                      accessibilityFeatures={place.accessibility_features} // Pass listed features
+                      // Pass only the features listed for the place, ensure it's an array
+                      accessibilityFeatures={place.accessibility_features ?? []}
                       onSubmit={handleReviewSubmit} // Pass callback
                       onCancel={() => setShowReviewForm(false)}
                     />
@@ -278,7 +301,7 @@ export default function PlaceDetailPage() {
               </div>
             ) : (
               <div className="space-y-6">
-                {/* Use fetched reviews */}
+                {/* Use fetched reviews state variable */}
                 {reviews.map((review) => (
                   <Card key={review.id}>
                     <CardContent className="p-6">
@@ -289,8 +312,8 @@ export default function PlaceDetailPage() {
                             <User className="h-5 w-5 text-gray-500 dark:text-gray-400" />
                           </div>
                           <div>
-                            {/* Use fetched user details */}
-                            <div className="font-medium">{review.user.first_name ?? review.user.username}</div>
+                            {/* Use fetched user details, ensure user object exists */}
+                            <div className="font-medium">{review.user?.first_name || review.user?.username || 'Anonymous'}</div>
                             <div className="text-sm text-gray-500 dark:text-gray-400 flex items-center">
                               <Calendar className="h-3 w-3 mr-1" />
                               {new Date(review.created_at).toLocaleDateString()}
@@ -304,20 +327,21 @@ export default function PlaceDetailPage() {
                                 <div className="flex">
                                 {[...Array(5)].map((_, i) => (
                                     <Star
-                                    key={`rating-${i}`}
+                                    key={`rating-${review.id}-${i}`} // More specific key
                                     className={`h-4 w-4 ${i < review.rating ? "text-yellow-500 fill-yellow-500" : "text-gray-300 dark:text-gray-600"}`}
                                     />
                                 ))}
                                 </div>
                             </div>
-                            {review.accessibility_rating !== null && ( // Only show if rated
+                            {/* Handle accessibility_rating being potentially null */}
+                            {typeof review.accessibility_rating === 'number' && (
                                 <div className="flex items-center">
                                 <span className="text-xs font-medium mr-2 w-20 text-right">Accessibility:</span>
                                 <div className="flex">
                                     {[...Array(5)].map((_, i) => (
                                     <Star
-                                        key={`acc-rating-${i}`}
-                                        className={`h-4 w-4 ${i < (review.accessibility_rating ?? 0) ? "text-green-500 fill-green-500" : "text-gray-300 dark:text-gray-600"}`}
+                                        key={`acc-rating-${review.id}-${i}`} // More specific key
+                                        className={`h-4 w-4 ${i < review.accessibility_rating! ? "text-green-500 fill-green-500" : "text-gray-300 dark:text-gray-600"}`}
                                     />
                                     ))}
                                 </div>
@@ -328,11 +352,11 @@ export default function PlaceDetailPage() {
 
                       {/* Comment */}
                        <p className="text-gray-700 dark:text-gray-300 mb-4 whitespace-pre-wrap">
-                           {review.comment ?? <span className="italic text-gray-500">No comment provided.</span>}
+                           {review.comment || <span className="italic text-gray-500">No comment provided.</span>}
                         </p>
 
-                      {/* Verification Details */}
-                      {(review.verified_features.length > 0 || review.missing_features.length > 0) && (
+                      {/* Verification Details - Check if arrays exist and have length */}
+                      {(review.verified_features?.length > 0 || review.missing_features?.length > 0) && (
                         <div className="mt-4 pt-4 border-t dark:border-gray-700">
                            <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
                                 Accessibility Verification
@@ -342,7 +366,7 @@ export default function PlaceDetailPage() {
                                 </Badge>
                            </h4>
 
-                          {review.verified_features.length > 0 && (
+                          {review.verified_features?.length > 0 && (
                             <div className="mb-3">
                               <div className="text-xs font-medium text-green-600 dark:text-green-400 mb-1 flex items-center">
                                 <Check className="h-3 w-3 mr-1" />
@@ -351,7 +375,7 @@ export default function PlaceDetailPage() {
                               <div className="flex flex-wrap gap-1">
                                 {review.verified_features.map((feature) => (
                                   <Badge
-                                    key={`vf-${feature.id}`}
+                                    key={`vf-${review.id}-${feature.id}`} // More specific key
                                     variant="outline"
                                     className="text-xs bg-green-50 text-green-700 border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-700"
                                   >
@@ -362,7 +386,7 @@ export default function PlaceDetailPage() {
                             </div>
                           )}
 
-                          {review.missing_features.length > 0 && (
+                          {review.missing_features?.length > 0 && (
                             <div>
                               <div className="text-xs font-medium text-red-600 dark:text-red-400 mb-1 flex items-center">
                                 <X className="h-3 w-3 mr-1" />
@@ -371,7 +395,7 @@ export default function PlaceDetailPage() {
                               <div className="flex flex-wrap gap-1">
                                 {review.missing_features.map((feature) => (
                                   <Badge
-                                    key={`mf-${feature.id}`}
+                                    key={`mf-${review.id}-${feature.id}`} // More specific key
                                     variant="outline"
                                     className="text-xs bg-red-50 text-red-700 border-red-200 dark:bg-red-900/50 dark:text-red-300 dark:border-red-700"
                                   >
@@ -445,7 +469,7 @@ export default function PlaceDetailPage() {
                     <div className="flex items-center">
                         <User className="h-4 w-4 text-gray-500 dark:text-gray-400 mr-2 flex-shrink-0" />
                         <span className="text-gray-600 dark:text-gray-300">
-                        Listed by {place.owner.first_name ?? place.owner.username}
+                        Listed by {place.owner.first_name || place.owner.username || 'Owner'}
                         </span>
                     </div>
                 )}
